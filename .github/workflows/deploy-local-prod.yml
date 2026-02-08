@@ -1,0 +1,235 @@
+name: Deploy to AWS (single server)
+
+on:
+  push: 
+    branches:
+      - experiment/redis
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      # ============================================
+      # Step 1: EC2 Public IP 동적 조회
+      # ============================================
+      - name: Get EC2 Public IP
+        id: get-ip
+        run: |
+          echo "🔍 Getting Public IP for ${{ steps.ec2-setup.outputs.instance_id }}..."
+
+          # 1. 태그(Name=codiit-dev)와 상태(running)로 IP 조회
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=codiit-dev" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+
+          # 2. IP를 못 찾았을 경우 에러 처리
+          if [[ "$PUBLIC_IP" == "None" || -z "$PUBLIC_IP" ]]; then
+            echo "❌ Error: 실행 중인 'codiit-dev' 서버를 찾을 수 없습니다."
+            exit 1
+          fi
+        
+          echo "✅ 찾은 Public IP: $PUBLIC_IP"
+            
+          # 3. 다음 단계에서 쓸 수 있도록 출력 변수에 저장
+          echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+      
+      # ============================================
+      # Step 2: Docker 이미지 빌드 및 ECR 푸시
+      # ============================================
+      - name: Login to AWS ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        run: |
+          echo "🔨 Building Docker image..."
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+                    $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "📤 Pushing to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      # ============================================
+      # Step 3: EC2에 배포 (SSH)
+      # ============================================
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/codiit-key.pem
+          chmod 400 ~/.ssh/codiit-key.pem
+          ssh-keyscan -H ${{ steps.get-ip.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+      
+      - name: Create .env file locally
+        run: |
+          echo "📝 Creating .env file locally..."
+          cat > .env.production << 'EOF'
+          # APP config
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          PORT=${{ secrets.PORT }}
+          DATABASE_URL=${{ secrets.DATABASE_URL }}
+          ACCESS_TOKEN_SECRET=${{ secrets.ACCESS_TOKEN_SECRET }}
+          ACCESS_TOKEN_EXPIRES_IN=15m
+          REFRESH_TOKEN_SECRET=${{ secrets.REFRESH_TOKEN_SECRET }}
+          REFRESH_TOKEN_EXPIRES_IN=7d
+          CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
+          BCRYPT_ROUNDS=10
+          PORTONE_API_KEY=${{ secrets.PORTONE_API_KEY }}
+          PORTONE_API_SECRET=${{ secrets.PORTONE_API_SECRET }}
+          REDIS_URL=${{ secrets.REDIS_URL }}
+          SLOW_QUERY_THRESHOLD_MS=${{ secrets.SLOW_QUERY_THRESHOLD_MS }}
+          RATE_LIMIT_WINDOW=${{ secrets.RATE_LIMIT_WINDOW }}
+          RATE_LIMIT_MAX=${{ secrets.RATE_LIMIT_MAX }}
+          RATE_LIMIT_AUTH_LOGIN_WINDOW=${{ secrets.RATE_LIMIT_AUTH_LOGIN_WINDOW }}
+          RATE_LIMIT_AUTH_LOGIN_MAX=${{ secrets.RATE_LIMIT_AUTH_LOGIN_MAX }}
+          RATE_LIMIT_AUTH_REFRESH_WINDOW=${{ secrets.RATE_LIMIT_AUTH_REFRESH_WINDOW }}
+          RATE_LIMIT_AUTH_REFRESH_MAX=${{ secrets.RATE_LIMIT_AUTH_REFRESH_MAX }}
+
+          # AWS config
+          # AWS_ACCESS_KEY, SECRET 대신 ec2에 직접 iam role을 지정해서 사용
+          AWS_REGION=${{ env.AWS_REGION }}
+          AWS_S3_BUCKET=${{ secrets.AWS_S3_BUCKET }}
+          ECR_REGISTRY=${{ env.ECR_REGISTRY }}
+          ECR_REPOSITORY=${{ env.ECR_REPOSITORY }}
+          IMAGE_TAG=${{ env.IMAGE_TAG }}
+          EOF
+          echo "✅ .env file created"
+      
+      - name: Transfer .env to EC2
+        run: |
+          echo "📤 Transferring .env to EC2..."
+          scp -i ~/.ssh/codiit-key.pem .env.production docker-compose.yml \
+            ec2-user@${{ steps.get-ip.outputs.public_ip }}:/home/ec2-user/
+
+          # 이름 변경 (.env.production -> .env)
+          ssh -i ~/.ssh/codiit-key.pem ec2-user@${{ steps.get-ip.outputs.public_ip }} "mv /home/ec2-user/.env.production /home/ec2-user/.env"
+          
+          # 로컬 .env 삭제 (보안)
+          rm -f .env.production
+
+          echo "✅ .env file transferred securely"
+      
+      - name: Deploy Docker compose on EC2
+        run: |
+          echo "🚀 Deploying to EC2..."
+
+          ssh -i ~/.ssh/codiit-key.pem ec2-user@${{ steps.get-ip.outputs.public_ip }} \
+              "AWS_REGION=$AWS_REGION \
+              ECR_REGISTRY=$ECR_REGISTRY \
+              bash -s" << 'DEPLOYSSH'
+          
+          # 1. ECR 로그인
+          aws ecr get-login-password --region $AWS_REGION | \
+              docker login --username AWS --password-stdin $ECR_REGISTRY
+          
+          # 2. 이미지 Pull
+          echo "📥 Pulling new image..."
+          docker compose pull
+
+          # 3. docker compose 실행
+          echo "🔄 Restarting containers..."
+          docker compose up -d --remove-orphans
+
+          # 4. Prisma 마이그레이션 실행
+          echo "🔄 Running Prisma migrations..."
+          docker compose exec -T api-server npx prisma migrate deploy
+
+          if [ $? -ne 0 ]; then
+             echo "❌ Migration failed!"
+             docker compose logs --tail 50
+             exit 1
+          fi
+
+          echo "✅ Migrations completed"
+
+          # 5. 헬스체크 (API 서버)
+          echo "🏥 Health checking..."
+          for i in {1..12}; do
+            if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              docker logout $ECR_REGISTRY || true
+              exit 0
+            fi
+            sleep 5
+          done
+          
+          echo "❌ Health check failed!"
+          docker compose logs --tail 50
+          exit 1
+          DEPLOYSSH
+
+          echo "✅ Deployment on EC2 successful!"
+
+      # ============================================
+      # 정리: 사용하지 않는 Docker 이미지 삭제
+      # ============================================
+      - name: Cleanup old Docker images
+        if: success()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ steps.get-ip.outputs.public_ip }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "🧹 Cleaning up unused Docker images..."
+            
+            # 24시간 지난 미사용 이미지만 삭제
+            docker image prune -af --filter "until=24h"
+            
+            echo "✅ Cleanup completed"
+
+      # ============================================
+      # Discord 알림
+      # ============================================
+      - name: Send Discord notification on success
+        if: success()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "✅ 프로덕션 배포 성공!"
+          description: |
+              - 🌿 **브랜치**: ${{ github.ref_name }}
+              - 🚀 **배포 환경**: Production (Single Instance)
+              - 🖥️ **서버 IP**: ${{ steps.get-ip.outputs.public_ip }}
+              - 🐳 **이미지 태그**: ${{ github.sha }}
+              - 👤 **배포자**: ${{ github.actor }}
+          color: 0x00FF00
+          username: GitHub Actions
+          avatar_url: https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png
+
+      - name: Send Discord notification on failure
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          title: "❌ 프로덕션 배포 실패!"
+          description: |
+            - 🌿 **브랜치**: ${{ github.ref_name }}
+            - 🚨 **실패 단계**: Workflow 로그를 확인해주세요.
+            - 🖥️ **대상 서버**: ${{ steps.get-ip.outputs.public_ip }}
+            - 👤 **배포자**: ${{ github.actor }}
+          color: 0xFF0000
+          username: GitHub Actions
+          avatar_url: https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png
+

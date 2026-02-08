@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  # =========================================
+  # 1. API 서버 (Blue/Green 배포 대상)
+  # =========================================
+  api-server:
+    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+    container_name: api-server
+    restart: always
+    ports:
+      - '3000:3000' # 호스트:컨테이너
+    command: npm run start:api
+
+  # =========================================
+  # 2. 재고 관리 워커 (독립 실행)
+  # =========================================
+  stock-worker:
+    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
+    container_name: stock-worker
+    restart: always
+    command: npm run start:worker
+    depends_on:
+      - api-server # API 이미지가 빌드된 후에 실행되도록

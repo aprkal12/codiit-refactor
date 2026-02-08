@@ -74,12 +74,14 @@ jobs:
       # ============================================
       # Step 3: EC2에 배포 (SSH)
       # ============================================
+      # sk broadband 인터넷은 22번 포트가 차단되어 있음
+      # ec2의 ssh 포트를 2222번 포트로 변경함
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/codiit-key.pem
           chmod 400 ~/.ssh/codiit-key.pem
-          ssh-keyscan -H ${{ steps.get-ip.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p 2222 -H ${{ steps.get-ip.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null
       
       - name: Create .env file locally
         run: |
@@ -119,11 +121,11 @@ jobs:
       - name: Transfer .env to EC2
         run: |
           echo "📤 Transferring .env to EC2..."
-          scp -i ~/.ssh/codiit-key.pem .env.production docker-compose.yml \
+          scp -i ~/.ssh/codiit-key.pem -P 2222 .env.production docker-compose.yml \
             ec2-user@${{ steps.get-ip.outputs.public_ip }}:/home/ec2-user/
 
           # 이름 변경 (.env.production -> .env)
-          ssh -i ~/.ssh/codiit-key.pem ec2-user@${{ steps.get-ip.outputs.public_ip }} "mv /home/ec2-user/.env.production /home/ec2-user/.env"
+          ssh -i ~/.ssh/codiit-key.pem -p 2222 ec2-user@${{ steps.get-ip.outputs.public_ip }} "mv /home/ec2-user/.env.production /home/ec2-user/.env"
           
           # 로컬 .env 삭제 (보안)
           rm -f .env.production
@@ -134,7 +136,7 @@ jobs:
         run: |
           echo "🚀 Deploying to EC2..."
 
-          ssh -i ~/.ssh/codiit-key.pem ec2-user@${{ steps.get-ip.outputs.public_ip }} \
+          ssh -i ~/.ssh/codiit-key.pem -p 2222 ec2-user@${{ steps.get-ip.outputs.public_ip }} \
               "AWS_REGION=$AWS_REGION \
               ECR_REGISTRY=$ECR_REGISTRY \
               bash -s" << 'DEPLOYSSH'

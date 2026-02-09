@@ -154,7 +154,7 @@ jobs:
 
           # 4. Prisma 마이그레이션 실행
           echo "🔄 Running Prisma migrations..."
-          docker compose exec -T api-server npx prisma migrate deploy
+          docker compose run --rm api-server ./node_modules/.bin/prisma migrate deploy
 
           if [ $? -ne 0 ]; then
              echo "❌ Migration failed!"

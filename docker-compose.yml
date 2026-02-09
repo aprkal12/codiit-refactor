@@ -8,6 +8,8 @@ services:
     image: ${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}
     container_name: api-server
     restart: always
+    env_file:
+      - .env
     ports:
       - '3000:3000' # 호스트:컨테이너
     command: npm run start:api
@@ -20,5 +22,7 @@ services:
     container_name: stock-worker
     restart: always
     command: npm run start:worker
+    env_file:
+      - .env
     depends_on:
       - api-server # API 이미지가 빌드된 후에 실행되도록

@@ -1,5 +1,5 @@
 import { OrderStatus, PointHistoryType, Prisma } from '@prisma/client';
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { generateBuyerToken, generateSellerToken } from '../helpers/authHelper.js';
 import {
   createTestBuyer,

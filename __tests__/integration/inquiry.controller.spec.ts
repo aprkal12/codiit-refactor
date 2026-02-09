@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { testClient, authRequest } from '../helpers/testClient.js';
 import { generateBuyerToken, generateSellerToken } from '../helpers/authHelper.js';
 import {

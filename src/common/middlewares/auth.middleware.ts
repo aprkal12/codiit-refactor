@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { UnauthorizedError, ForbiddenError } from '@/common/utils/errors.js';
 import { verifyAccessToken } from '@/common/utils/jwt.util.js';
 import type { UserType } from '@prisma/client';
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 
 const TEST_ACCOUNT_EMAILS = new Set(['buyer@codiit.com', 'seller@codiit.com']);
 

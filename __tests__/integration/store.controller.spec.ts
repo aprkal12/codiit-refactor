@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { testClient, authRequest } from '../helpers/testClient.js';
 import { generateSellerToken, generateBuyerToken } from '../helpers/authHelper.js';
 import {

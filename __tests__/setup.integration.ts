@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import prisma from '../src/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 
 // 테이블 TRUNCATE 순서 (FK 의존성 고려)
 const tableNames = [

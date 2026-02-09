@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 
 export interface CreateRefreshTokenData {
   token: string; // 해시된 토큰

@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { PaymentRepository } from '@/domains/payment/payment.repository.js';
 import { PaymentService } from '@/domains/payment/payment.service.js';
 import { PaymentController } from '@/domains/payment/payment.controller.js';

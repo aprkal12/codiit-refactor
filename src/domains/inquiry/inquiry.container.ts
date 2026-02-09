@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { InquiryController } from './inquiry.controller.js';
 import { InquiryRepository } from './inquiry.repository.js';
 import { InquiryService } from './inquiry.service.js';

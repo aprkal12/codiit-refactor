@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'http';
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { testClient, authRequest } from '../helpers/testClient.js';
 import { generateBuyerToken } from '../helpers/authHelper.js';
 import {

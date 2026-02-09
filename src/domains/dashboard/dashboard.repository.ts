@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { OrderStatus } from '@prisma/client';
 
 const COMPLETED_ORDER_STATUSES: OrderStatus[] = ['CompletedPayment', 'Delivered'];

@@ -1,6 +1,7 @@
 import { SSMClient, GetParametersByPathCommand } from '@aws-sdk/client-ssm';
 
 export async function loadEnvFromSSM() {
+  console.log('🔍 [DEBUG] NODE_ENV:', process.env.NODE_ENV);
   if (process.env.NODE_ENV !== 'production') {
     console.log('🌱 Local environment detected. Skipping SSM load.');
     return;

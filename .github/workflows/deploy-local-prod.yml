@@ -5,6 +5,12 @@ on:
     branches:
       - experiment/redis
 
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

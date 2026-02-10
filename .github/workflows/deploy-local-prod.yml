@@ -66,8 +66,14 @@ jobs:
           echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       # ============================================
-      # Step 3: EC2에 배포 (SSH)
+      # Step 3: EC2에 배포 (AWS SSM)
       # ============================================
+      # docker-compose 파일 s3에 업로드
+      - name: Upload docker-compose.yml to S3
+        run: |
+          aws s3 cp docker-compose.yml s3://codiit-prod-bucket/prod/docker-compose.yml
+      
+      # 0. docker-compose 파일 s3에서 다운로드
       # 1. ECR 로그인
       # 2. 이미지 pull, 도커 컴포즈 up
       # 3. db migration
@@ -76,15 +82,21 @@ jobs:
           aws ssm send-command \
             --instance-ids "${{ steps.get-id.outputs.id }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "cd /home/ec2-user",
-              "aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}",
-              "docker compose pull",
-              "docker compose up -d --remove-orphans",
-              "export DATABASE_URL=$(aws ssm get-parameter --name \"/codiit/prod/DATABASE_URL\" --with-decryption --query \"Parameter.Value\" --output text)",
-              "docker compose run --rm -e DATABASE_URL=$DATABASE_URL api-server ./node_modules/.bin/prisma migrate deploy",
-              "unset DATABASE_URL"
-            ]'
+            --parameters '{
+              "commands": [
+                "cd /home/ec2-user",
+                "aws s3 cp s3://codiit-prod-bucket/prod/docker-compose.yml .",
+                "aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}",
+                "export ECR_REGISTRY=${{ env.ECR_REGISTRY }}",
+                "export ECR_REPOSITORY=${{ env.ECR_REPOSITORY }}",
+                "export IMAGE_TAG=${{ github.sha }}",
+                "export AWS_REGION=${{ env.AWS_REGION }}",
+                "docker compose pull",
+                "docker compose up -d --remove-orphans --force-recreate",
+                "export DATABASE_URL=$(aws ssm get-parameter --name \"/codiit/prod/DATABASE_URL\" --with-decryption --query \"Parameter.Value\" --output text)",
+                "docker compose run --rm -e DATABASE_URL=$DATABASE_URL api-server ./node_modules/.bin/prisma migrate deploy"
+              ]
+            }'
 
       - name: Post-deployment Health Check
         run: |
@@ -122,7 +134,7 @@ jobs:
           description: |
               - 🌿 **브랜치**: ${{ github.ref_name }}
               - 🚀 **배포 환경**: Production (Single Instance)
-              - 🖥️ **서버 IP**: ${{ steps.get-ip.outputs.public_ip }}
+              - 🖥️ **Instance ID**: ${{ steps.get-id.outputs.id }}
               - 🐳 **이미지 태그**: ${{ github.sha }}
               - 👤 **배포자**: ${{ github.actor }}
           color: 0x00FF00
@@ -138,7 +150,7 @@ jobs:
           description: |
             - 🌿 **브랜치**: ${{ github.ref_name }}
             - 🚨 **실패 단계**: Workflow 로그를 확인해주세요.
-            - 🖥️ **대상 서버**: ${{ steps.get-ip.outputs.public_ip }}
+            - 🖥️ **Instance ID**: ${{ steps.get-id.outputs.id }}
             - 👤 **배포자**: ${{ github.actor }}
           color: 0xFF0000
           username: GitHub Actions

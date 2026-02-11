@@ -9,6 +9,11 @@ AWS_S3_BUCKET=$5
 
 cd /home/ec2-user
 
+mkdir -p nginx
+
+echo "📥 Downloading Nginx config..."
+aws s3 cp s3://$AWS_S3_BUCKET/prod/nginx/default.conf ./nginx/default.conf
+
 echo "📦 Pulling compose file"
 aws s3 cp s3://$AWS_S3_BUCKET/prod/docker-compose.yml .
 

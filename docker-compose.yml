@@ -28,3 +28,14 @@ services:
       - AWS_REGION=${AWS_REGION}
     depends_on:
       - api-server # API 이미지가 빌드된 후에 실행되도록
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - /etc/letsencrypt:/etc/letsencrypt
+    depends_on:
+      - api-server

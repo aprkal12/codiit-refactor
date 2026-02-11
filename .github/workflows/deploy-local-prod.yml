@@ -10,6 +10,7 @@ env:
   ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
   IMAGE_TAG: ${{ github.sha }}
+  AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
 
 jobs:
   deploy:
@@ -68,59 +69,22 @@ jobs:
       # ============================================
       # Step 3: EC2에 배포 (AWS SSM)
       # ============================================
-      # docker-compose 파일 s3에 업로드
+      # docker-compose, 배포 스크립트 파일 s3에 업로드
       - name: Upload docker-compose.yml to S3
         run: |
-          aws s3 cp docker-compose.yml s3://codiit-prod-bucket/prod/docker-compose.yml
+          aws s3 cp docker-compose.yml s3://$AWS_S3_BUCKET/prod/docker-compose.yml
+          aws s3 cp deploy.sh s3://$AWS_S3_BUCKET/prod/deploy.sh
       
-      # 0. docker-compose 파일 s3에서 다운로드
-      # 1. ECR 로그인
-      # 2. 이미지 pull, 도커 컴포즈 up
-      # 3. db migration
       - name: Deploy via AWS SSM
         run: |
           aws ssm send-command \
             --instance-ids "${{ steps.get-id.outputs.id }}" \
             --document-name "AWS-RunShellScript" \
-            --parameters '{
-              "commands": [
-                "cd /home/ec2-user",
-                "aws s3 cp s3://codiit-prod-bucket/prod/docker-compose.yml .",
-                "aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}",
-                "export ECR_REGISTRY=${{ env.ECR_REGISTRY }}",
-                "export ECR_REPOSITORY=${{ env.ECR_REPOSITORY }}",
-                "export IMAGE_TAG=${{ github.sha }}",
-                "export AWS_REGION=${{ env.AWS_REGION }}",
-                "docker compose pull",
-                "docker compose up -d --remove-orphans --force-recreate",
-                "export DATABASE_URL=$(aws ssm get-parameter --name \"/codiit/prod/DATABASE_URL\" --with-decryption --query \"Parameter.Value\" --output text)",
-                "docker compose run --rm -e DATABASE_URL=$DATABASE_URL api-server ./node_modules/.bin/prisma migrate deploy"
-              ]
-            }'
-
-      - name: Post-deployment Health Check
-        run: |
-          # SSH 접속 curl 대신 AWS SSM을 통해 원격 서버 내부에서 localhost로 curl을 쏘게 한다.
-          aws ssm send-command \
-            --instance-ids "${{ steps.get-id.outputs.id }}" \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["curl -f http://localhost:3000/api/health"]'
-
-      # ============================================
-      # 정리: 사용하지 않는 Docker 이미지 삭제
-      # ============================================
-      - name: Cleanup old Docker images
-        if: success()
-        run: |
-          aws ssm send-command \
-            --instance-ids "${{ steps.get-id.outputs.id }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Cleanup unused docker images" \
             --parameters 'commands=[
-              "echo 🧹 Cleaning up unused Docker images...",
-              "docker image prune -af --filter \"until=24h\"",
-              "echo ✅ Cleanup completed"
-            ]'
+              "aws s3 cp s3://${{ env.AWS_S3_BUCKET }}/prod/deploy.sh /home/ec2-user/deploy.sh",
+              "chmod +x /home/ec2-user/deploy.sh",
+              "/bin/bash /home/ec2-user/deploy.sh ${{ env.ECR_REGISTRY }} ${{ env.ECR_REPOSITORY }} ${{ github.sha }} ${{ env.AWS_REGION }} ${{ env.AWS_S3_BUCKET }}"
+          ]'
 
       # ============================================
       # Discord 알림

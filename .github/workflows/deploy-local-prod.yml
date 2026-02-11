@@ -83,7 +83,8 @@ jobs:
             --parameters 'commands=[
               "aws s3 cp s3://${{ env.AWS_S3_BUCKET }}/prod/deploy.sh /home/ec2-user/deploy.sh",
               "chmod +x /home/ec2-user/deploy.sh",
-              "/bin/bash /home/ec2-user/deploy.sh ${{ env.ECR_REGISTRY }} ${{ env.ECR_REPOSITORY }} ${{ github.sha }} ${{ env.AWS_REGION }} ${{ env.AWS_S3_BUCKET }}"
+              "chown -R ec2-user:ec2-user /home/ec2-user",
+              "su - ec2-user -c \"/bin/bash /home/ec2-user/deploy.sh ${{ env.ECR_REGISTRY }} ${{ env.ECR_REPOSITORY }} ${{ github.sha }} ${{ env.AWS_REGION }} ${{ env.AWS_S3_BUCKET }}\""
           ]'
 
       # ============================================

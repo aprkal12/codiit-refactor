@@ -6,6 +6,7 @@ ECR_REPOSITORY=$2
 IMAGE_TAG=$3
 AWS_REGION=$4
 AWS_S3_BUCKET=$5
+SHOULD_SEED=${6:-false}
 
 cd /home/ec2-user
 
@@ -35,6 +36,15 @@ DATABASE_URL="$(aws ssm get-parameter \
 
 docker compose run --rm -e DATABASE_URL="$DATABASE_URL" api-server \
   ./node_modules/.bin/prisma migrate deploy
+
+if [ "$SHOULD_SEED" == "true" ]; then
+  echo "🌱 Seeding database requested..."
+  docker compose run --rm -e DATABASE_URL="$DATABASE_URL" api-server \
+    node dist/config/seed.js
+  echo "✅ Seeding completed!"
+else
+  echo "⏩ Skipping seed (SHOULD_SEED is not true)"
+fi
 
 echo "⏳ Waiting for server to start..."
 # 5초 간격으로 최대 12번(60초) 헬스체크 재시도

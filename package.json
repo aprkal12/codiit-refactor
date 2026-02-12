@@ -33,7 +33,7 @@
     "prepare": "husky"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx src/config/seed.ts"
   },
   "keywords": [],
   "author": "",

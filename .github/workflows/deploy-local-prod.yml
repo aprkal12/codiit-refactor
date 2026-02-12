@@ -4,6 +4,13 @@ on:
   push: 
     branches:
       - experiment/redis
+  workflow_dispatch:
+    inputs:
+      run_seed:
+        description: '데이터베이스 시딩을 실행할까요?'
+        required: false
+        default: 'false'
+        type: boolean
 
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -79,6 +86,8 @@ jobs:
       
       - name: Deploy via AWS SSM
         run: |
+          SEED_FLAG="${{ inputs.run_seed || 'false' }}"
+
           # SSM 명령 발송, Command ID 저장 후 검증
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.get-id.outputs.id }}" \
@@ -87,7 +96,7 @@ jobs:
               "aws s3 cp s3://${{ env.AWS_S3_BUCKET }}/prod/deploy.sh /home/ec2-user/deploy.sh",
               "chmod +x /home/ec2-user/deploy.sh",
               "chown -R ec2-user:ec2-user /home/ec2-user",
-              "su - ec2-user -c \"/bin/bash /home/ec2-user/deploy.sh ${{ env.ECR_REGISTRY }} ${{ env.ECR_REPOSITORY }} ${{ github.sha }} ${{ env.AWS_REGION }} ${{ env.AWS_S3_BUCKET }}\""
+              "su - ec2-user -c \"/bin/bash /home/ec2-user/deploy.sh ${{ env.ECR_REGISTRY }} ${{ env.ECR_REPOSITORY }} ${{ github.sha }} ${{ env.AWS_REGION }} ${{ env.AWS_S3_BUCKET }} '$SEED_FLAG'\""
             ]' \
             --query "Command.CommandId" \
             --output text)

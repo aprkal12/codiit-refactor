@@ -3,7 +3,7 @@ name: Deploy to AWS (single server)
 on:
   push: 
     branches:
-      - experiment/redis
+      - experiment/deploy
   workflow_dispatch:
     inputs:
       run_seed:

@@ -18,8 +18,8 @@ import {
 import { SseManager } from '@/common/utils/sse.manager.js';
 import { UserService } from '@/domains/user/user.service.js';
 import { buildOrderData } from '@/domains/order/order.utils.js';
-import { Redis } from 'ioredis';
 import { logger } from '@/config/logger.js';
+import { Queue } from 'bullmq';
 
 export class OrderService {
   constructor(
@@ -28,7 +28,7 @@ export class OrderService {
     private prisma: PrismaClient,
     private userService: UserService,
     private sseManager: SseManager,
-    private redisClient: Redis,
+    private orderQueue: Queue,
   ) {}
   private async validateOwner(userId: string, orderId: string) {
     const owner = await this.orderRepository.findOwnerById(orderId);
@@ -147,10 +147,16 @@ export class OrderService {
       return { orderId: order.id, expiresAt };
     });
 
-    await this.redisClient.zadd(
+    const delayMs = Math.max(result.expiresAt.getTime() - Date.now(), 0);
+
+    await this.orderQueue.add(
       'order_expire_queue',
-      result.expiresAt.getTime(),
-      result.orderId.toString(),
+      { orderId: result.orderId.toString() },
+      {
+        delay: delayMs,
+        jobId: `expire-${result.orderId.toString()}`,
+        removeOnComplete: true,
+      },
     );
     logger.info(`[Redis] 주문 ${result.orderId} 만료 예약 등록 완료`);
 

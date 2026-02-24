@@ -49,7 +49,7 @@ import {
   NotFoundError,
 } from '@/common/utils/errors.js';
 import { createSizeMock } from '../mocks/cart.mock.js';
-import { Redis } from 'ioredis';
+import { Queue } from 'bullmq';
 
 describe('OrderService', () => {
   const buyerId = 'buyer-id-1';
@@ -62,7 +62,7 @@ describe('OrderService', () => {
   let mockUserService: DeepMockProxy<UserService>;
   let mockOrderService: OrderService;
   let mockSseManager: DeepMockProxy<SseManager>;
-  let mockRedis: DeepMockProxy<Redis>;
+  let mockQueue: DeepMockProxy<Queue>;
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -72,7 +72,7 @@ describe('OrderService', () => {
     mockNotificationService = mockDeep<NotificationService>();
     mockUserService = mockDeep<UserService>();
     mockSseManager = mockDeep<SseManager>();
-    mockRedis = mockDeep<Redis>();
+    mockQueue = mockDeep<Queue>();
 
     mockOrderService = new OrderService(
       mockOrderRepo,
@@ -80,7 +80,7 @@ describe('OrderService', () => {
       mockPrisma,
       mockUserService,
       mockSseManager,
-      mockRedis,
+      mockQueue,
     );
 
     (mockPrisma.$transaction as jest.MockedFunction<TxMock>).mockImplementation(async (cb) =>

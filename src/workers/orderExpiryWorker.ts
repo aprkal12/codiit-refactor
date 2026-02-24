@@ -1,9 +1,16 @@
 import { logger } from '@/config/logger.js';
 import { orderService } from '@/domains/order/order.container.js';
 import { Worker } from 'bullmq';
-import { redisClient } from '@/config/redis.js';
+import { Redis } from 'ioredis';
+import { env } from '@/config/constants.js';
 
 logger.info('👷 주문 만료 처리 워커(BullMQ)가 시작되었습니다.');
+
+// 큐와 워커가 동일한 redis 인스턴스를 공유하면 안됨
+// 만료처리하느라 락 걸렸을 때 동시에 결제 대기 건이 생기는 경우 락 때문에 redis에 업로드 안되는 상황 발생 가능
+const workerConnection = new Redis(env.REDIS_URL || 'redis://localhost:6379', {
+  maxRetriesPerRequest: null,
+});
 
 const worker = new Worker(
   'OrderExpireQueue',
@@ -22,7 +29,7 @@ const worker = new Worker(
     }
   },
   {
-    connection: redisClient,
+    connection: workerConnection,
     concurrency: 5, // 이 워커 인스턴스 하나가 동시에 처리할 작업 수
   },
 );

@@ -20,6 +20,7 @@ import { UserService } from '@/domains/user/user.service.js';
 import { buildOrderData } from '@/domains/order/order.utils.js';
 import { logger } from '@/config/logger.js';
 import { Queue } from 'bullmq';
+import { handleQueueError } from '@/common/utils/redisError.util.js';
 
 export class OrderService {
   constructor(
@@ -347,6 +348,15 @@ export class OrderService {
       return; // 이미 처리된 결제인경우 트랜잭션에서 에러대신 null 리턴
     }
     logger.info('[confirmPayment] 트랜잭션 성공');
+
+    try {
+      await this.orderQueue.remove(`expire-${orderId}`);
+      logger.info(`[Redis] 결제 완료로 인한 주문 ${orderId} 만료 예약 작업 삭제 완료`);
+    } catch (error) {
+      // 큐 삭제 실패가 결제 확정이라는 메인 로직에 영향을 주지 않도록 유틸리티 함수로 위임
+      handleQueueError(error, `주문 ${orderId} 만료 예약 작업 삭제 중 에러 발생`);
+    }
+
     // 2. 최종 결과 조회
     const createdOrder = await this.orderRepository.findById(result.orderId);
     if (!createdOrder) {
@@ -486,6 +496,12 @@ export class OrderService {
       // await this.orderRepository.updateStatus(order.id, OrderStatus.Cancelled, tx);
       await this.orderRepository.deleteOrder(order.id, tx);
     });
+    try {
+      await this.orderQueue.remove(`expire-${orderId}`);
+      logger.info(`[Redis] 주문 취소로 인한 주문 ${orderId} 만료 예약 작업 삭제 완료`);
+    } catch (error) {
+      handleQueueError(error, `주문 ${orderId} 만료 예약 작업 삭제 중 에러 발생`);
+    }
     // 주문 취소 시 등급 변동 여부 계산
     // 주문을 취소해서 누적 주문 금액이 다시 미달되면 등급이 하락?
     // 한번 승급한 등급은 일정 기간 동안 그대로 유지시키기?
@@ -513,6 +529,12 @@ export class OrderService {
       // 2. 주문 상태 만료 처리
       await this.orderRepository.updateStatus(orderId, OrderStatus.Cancelled, tx);
     });
+    try {
+      await this.orderQueue.remove(`expire-${orderId}`);
+      logger.info(`[Redis] 주문 취소/만료로 인한 주문 ${orderId} 만료 예약 작업 삭제 완료`);
+    } catch (error) {
+      handleQueueError(error, `주문 ${orderId} 만료 예약 작업 삭제 중 에러 발생`);
+    }
   }
 
   async cancelAllWaitingPaymentOrders() {

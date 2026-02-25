@@ -19,7 +19,7 @@ echo "📦 Pulling compose file"
 aws s3 cp s3://$AWS_S3_BUCKET/prod/docker-compose.yml .
 
 echo "🔐 Logging into ECR"
-aws ecr get-login-password --region "$AWS_REGION" \
+aws ecr-public get-login-password --region "us-east-1" \
   | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
 echo "🚀 Deploying containers"
@@ -45,6 +45,8 @@ if [ "$SHOULD_SEED" == "true" ]; then
 else
   echo "⏩ Skipping seed (SHOULD_SEED is not true)"
 fi
+
+HEALTH_CHECK_PASSED=false
 
 echo "⏳ Waiting for server to start..."
 # 5초 간격으로 최대 12번(60초) 헬스체크 재시도

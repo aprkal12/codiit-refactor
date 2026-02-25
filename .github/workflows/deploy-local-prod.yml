@@ -62,8 +62,13 @@ jobs:
       # ============================================
       # Step 2: Docker 이미지 빌드 및 ECR 푸시
       # ============================================
-      - name: Login to AWS ECR
+      - name: Login to AWS ECR-public
         uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+        with: 
+          registry-type: public
 
       - name: Build and push Docker image
         run: |
@@ -134,6 +139,36 @@ jobs:
             exit 1
           else
             echo "✅ Deployment Succeeded!"
+          fi
+        
+      # ============================================
+      # Step 4: ECR Public 예전 이미지 정리 (최신 5개 유지)
+      # ============================================
+      - name: Clean up old images in ECR Public
+        if: success()
+        env:
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          echo "🧹 오래된 이미지 검색 중 (최근 5개 유지)..."
+          
+          # 시간순 정렬 후 최신 5개를 제외한 나머지 이미지의 Digest를 추출
+          DIGESTS_TO_DELETE=$(aws ecr-public describe-images \
+            --repository-name ${{ vars.ECR_REPOSITORY }} \
+            --query 'sort_by(imageDetails, &imagePushedAt)[*].imageDigest' \
+            --output json | jq -r 'reverse | .[5:] | .[]')
+          
+          if [ -z "$DIGESTS_TO_DELETE" ]; then
+            echo "✅ 삭제할 오래된 이미지가 없습니다 (현재 5개 이하)."
+          else
+            echo "🗑️ 삭제 대상 발견. 일괄 삭제를 진행합니다..."
+            for DIGEST in $DIGESTS_TO_DELETE; do
+              aws ecr-public batch-delete-image \
+                --repository-name ${{ vars.ECR_REPOSITORY }} \
+                --image-ids imageDigest=$DIGEST
+              echo "Deleted: $DIGEST"
+            done
+            echo "✅ ECR Public 정리 완료!"
           fi
 
       # ============================================

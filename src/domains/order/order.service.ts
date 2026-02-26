@@ -21,6 +21,7 @@ import { buildOrderData } from '@/domains/order/order.utils.js';
 import { logger } from '@/config/logger.js';
 import { Queue } from 'bullmq';
 import { handleQueueError } from '@/common/utils/redisError.util.js';
+import { putMetric } from '@/common/utils/cloudwatch.util.js';
 
 export class OrderService {
   constructor(
@@ -120,6 +121,8 @@ export class OrderService {
           tx,
         );
         if (reservedResult === 0) {
+          // 도메인 지표 수집: 재고 부족으로 인한 주문 실패
+          putMetric('codiit/Domain', 'Order_StockReservationFailed', 1, 'Count');
           throw new BadRequestError('재고가 부족합니다.');
         }
       }

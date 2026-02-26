@@ -28,6 +28,7 @@ import metadataRouter from '@/domains/metadata/metadata.router.js';
 import s3Router from '@/domains/s3/s3.router.js';
 import paymentRouter from '@/domains/payment/payment.router.js';
 import testRouter from '@/domains/test/test.router.js';
+import { metricMiddleware } from '@/common/middlewares/metric.middleware.js';
 
 // Swagger
 import swaggerUi from 'swagger-ui-express';
@@ -74,6 +75,8 @@ app.use(
 );
 app.use(express.json());
 app.use(cookieParser());
+
+app.use(metricMiddleware);
 
 // Health check (Rate limit 제외)
 app.get('/api/health', (req: Request, res: Response) => {

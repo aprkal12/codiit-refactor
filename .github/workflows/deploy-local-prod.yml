@@ -101,13 +101,15 @@ jobs:
           # SSM 명령 발송, Command ID 저장 후 검증
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "${{ steps.get-id.outputs.id }}" \
-            --document-name "AWS-RunShellScript" \
-            --parameters 'commands=[
-              "aws s3 cp s3://${{ env.AWS_S3_BUCKET }}/prod/deploy.sh /home/ec2-user/deploy.sh",
-              "chmod +x /home/ec2-user/deploy.sh",
-              "chown -R ec2-user:ec2-user /home/ec2-user",
-              "su - ec2-user -c \"/bin/bash /home/ec2-user/deploy.sh ${{ env.ECR_REGISTRY }} ${{ env.ECR_REPOSITORY }} ${{ github.sha }} ${{ env.AWS_REGION }} ${{ env.AWS_S3_BUCKET }} '$SEED_FLAG'\""
-            ]' \
+            --document-name "Deploy-codiit" \
+            --parameters '{
+              "registry": ["${{ env.ECR_REGISTRY }}"],
+              "repository": ["${{ env.ECR_REPOSITORY }}"],
+              "tag": ["${{ github.sha }}"],
+              "region": ["${{ env.AWS_REGION }}"],
+              "bucket": ["${{ env.AWS_S3_BUCKET }}"],
+              "seedFlag": ["'$SEED_FLAG'"]
+            }' \
             --query "Command.CommandId" \
             --output text)
 

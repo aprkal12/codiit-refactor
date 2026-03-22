@@ -1,0 +1,209 @@
+name: Deploy to AWS (single server)
+
+permissions:
+  id-token: write
+  contents: read
+
+on:
+  push: 
+    branches:
+      - experiment/deploy
+  workflow_dispatch:
+    inputs:
+      run_seed:
+        description: '데이터베이스 시딩을 실행할까요?'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REGISTRY: ${{ vars.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  IMAGE_TAG: ${{ github.sha }}
+  AWS_S3_BUCKET: ${{ vars.AWS_S3_BUCKET }}
+  ROLE_ARN: ${{ vars.ROLE_ARN }}
+  DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      # ============================================
+      # Step 1: EC2 ID 조회
+      # ============================================
+      - name: Get EC2 Instance ID
+        id: get-id
+        run: |
+          echo "🔍 Searching for EC2 Instance ID with tag Name=codiit-dev..."
+
+          # 1. 태그(Name=codiit-dev)와 상태(running)로 instance ID 조회
+          ID=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=codiit-dev" --query 'Reservations[0].Instances[0].InstanceId' --output text)
+          echo "id=$ID" >> $GITHUB_OUTPUT
+
+          # 2. ID를 못 찾았을 경우 에러 처리
+          if [[ "$ID" == "None" || -z "$ID" ]]; then
+            echo "❌ Error: 실행 중인 'codiit-dev' 서버를 찾을 수 없습니다."
+            exit 1
+          fi
+        
+          echo "✅ 찾은 Instance ID: $ID"
+      
+      # ============================================
+      # Step 2: Docker 이미지 빌드 및 ECR 푸시
+      # ============================================
+      - name: Login to AWS ECR-public
+        uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+        with: 
+          registry-type: public
+
+      - name: Build and push Docker image
+        run: |
+          echo "🔨 Building Docker image..."
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+                    $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "📤 Pushing to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "✅ Image pushed: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      # ============================================
+      # Step 3: EC2에 배포 (AWS SSM)
+      # ============================================
+      # docker-compose, 배포 스크립트 파일, nginx 설정 파일 s3에 업로드
+      - name: Upload docker-compose.yml to S3
+        run: |
+          aws s3 cp docker-compose.yml s3://$AWS_S3_BUCKET/prod/docker-compose.yml
+          aws s3 cp deploy.sh s3://$AWS_S3_BUCKET/prod/deploy.sh
+          aws s3 cp nginx/default.conf s3://${{ env.AWS_S3_BUCKET }}/prod/nginx/default.conf
+      
+      
+      - name: Deploy via AWS SSM
+        run: |
+          SEED_FLAG="${{ inputs.run_seed || 'false' }}"
+
+          # SSM 명령 발송, Command ID 저장 후 검증
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.get-id.outputs.id }}" \
+            --document-name "Deploy-codiit" \
+            --parameters '{
+              "registry": ["${{ env.ECR_REGISTRY }}"],
+              "repository": ["${{ env.ECR_REPOSITORY }}"],
+              "tag": ["${{ github.sha }}"],
+              "region": ["${{ env.AWS_REGION }}"],
+              "bucket": ["${{ env.AWS_S3_BUCKET }}"],
+              "seedFlag": ["'$SEED_FLAG'"]
+            }' \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "🚀 Command sent! ID: $COMMAND_ID"
+          echo "⏳ Waiting for command execution..."
+
+          # 명령이 끝날 때까지 대기 
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ steps.get-id.outputs.id }}"
+
+          # 최종 결과 확인
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ steps.get-id.outputs.id }}" \
+            --query "Status" \
+            --output text)
+
+          echo "📝 Deployment Status: $STATUS"
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "❌ Deployment Failed!"
+            # 실패 시 에러 로그를 출력해서 깃허브에서 바로 볼 수 있게 함
+            aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ steps.get-id.outputs.id }}" \
+              --query "StandardErrorContent" \
+              --output text
+            exit 1
+          else
+            echo "✅ Deployment Succeeded!"
+          fi
+        
+      # ============================================
+      # Step 4: ECR Public 예전 이미지 정리 (최신 5개 유지)
+      # ============================================
+      - name: Clean up old images in ECR Public
+        if: success()
+        env:
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          echo "🧹 오래된 이미지 검색 중 (최근 5개 유지)..."
+          
+          # 시간순 정렬 후 최신 5개를 제외한 나머지 이미지의 Digest를 추출
+          DIGESTS_TO_DELETE=$(aws ecr-public describe-images \
+            --repository-name ${{ vars.ECR_REPOSITORY }} \
+            --query 'sort_by(imageDetails, &imagePushedAt)[*].imageDigest' \
+            --output json | jq -r 'reverse | .[5:] | .[]')
+          
+          if [ -z "$DIGESTS_TO_DELETE" ]; then
+            echo "✅ 삭제할 오래된 이미지가 없습니다 (현재 5개 이하)."
+          else
+            echo "🗑️ 삭제 대상 발견. 일괄 삭제를 진행합니다..."
+            for DIGEST in $DIGESTS_TO_DELETE; do
+              aws ecr-public batch-delete-image \
+                --repository-name ${{ vars.ECR_REPOSITORY }} \
+                --image-ids imageDigest=$DIGEST
+              echo "Deleted: $DIGEST"
+            done
+            echo "✅ ECR Public 정리 완료!"
+          fi
+
+      # ============================================
+      # Discord 알림
+      # ============================================
+      - name: Send Discord notification on success
+        if: success()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ env.DISCORD_WEBHOOK_URL }}
+          title: "✅ 프로덕션 배포 성공!"
+          description: |
+              - 🌿 **브랜치**: ${{ github.ref_name }}
+              - 🚀 **배포 환경**: Production (Single Instance)
+              - 🖥️ **Instance ID**: ${{ steps.get-id.outputs.id }}
+              - 🐳 **이미지 태그**: ${{ github.sha }}
+              - 👤 **배포자**: ${{ github.actor }}
+          color: 0x00FF00
+          username: GitHub Actions
+          avatar_url: https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png
+
+      - name: Send Discord notification on failure
+        if: failure()
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ env.DISCORD_WEBHOOK_URL }}
+          title: "❌ 프로덕션 배포 실패!"
+          description: |
+            - 🌿 **브랜치**: ${{ github.ref_name }}
+            - 🚨 **실패 단계**: Workflow 로그를 확인해주세요.
+            - 🖥️ **Instance ID**: ${{ steps.get-id.outputs.id }}
+            - 👤 **배포자**: ${{ github.actor }}
+          color: 0xFF0000
+          username: GitHub Actions
+          avatar_url: https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png
+

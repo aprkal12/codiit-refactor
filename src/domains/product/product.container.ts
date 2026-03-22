@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { ProductRepository } from './product.repository.js';
 import { ProductService } from './product.service.js';
 import { ProductController } from './product.controller.js';

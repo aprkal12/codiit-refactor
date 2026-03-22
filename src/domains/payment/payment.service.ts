@@ -7,6 +7,7 @@ import { CreatePaymentServiceInput } from '@/domains/payment/payment.dto.js';
 import { PaymentRepository } from '@/domains/payment/payment.repository.js';
 import { logger } from '@/config/logger.js';
 import { handleAxiosError } from '@/common/utils/axiosError.util.js';
+import { putMetric } from '@/common/utils/cloudwatch.util.js';
 
 export class PaymentService {
   constructor(
@@ -143,6 +144,12 @@ export class PaymentService {
       await this.orderService.confirmPayment(merchant_uid);
       logger.info('[WEBHOOK] 결제 확정 처리 완료 ✅');
     } catch (error) {
+      const errorName = error instanceof Error ? error.name : 'Unknown';
+      // 결제 검증/승인 실패 시
+      putMetric('codiit/Domain', 'Payment_ApprovalFailed', 1, 'Count', [
+        // Dimension(태그)를 추가하여 원인 분류
+        { Name: 'Reason', Value: errorName || 'Unknown' },
+      ]);
       handleAxiosError(error, '결제 콜백 처리 중 에러 발생');
     }
   }

@@ -9,20 +9,22 @@ let s3Client: S3Client;
 
 const getS3Client = () => {
   if (!s3Client) {
-    if (
-      !env.AWS_S3_BUCKET ||
-      !env.AWS_REGION ||
-      !env.AWS_ACCESS_KEY_ID ||
-      !env.AWS_SECRET_ACCESS_KEY
-    ) {
+    if (!env.AWS_S3_BUCKET || !env.AWS_REGION) {
       throw new InternalServerError('S3 설정에 필요한 환경 변수가 누락되었습니다.');
     }
+
+    // 배포 환경일땐 ec2 iam role, 로컬에서는 iam user로 인증
+    const credentials =
+      env.NODE_ENV !== 'production' && env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
+        ? {
+            accessKeyId: env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+          }
+        : undefined;
+
     s3Client = new S3Client({
       region: env.AWS_REGION,
-      credentials: {
-        accessKeyId: env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: env.AWS_SECRET_ACCESS_KEY,
-      },
+      credentials,
     });
   }
   return s3Client;
@@ -37,7 +39,7 @@ interface FileUploadParams {
 export const uploadFile = async ({ buffer, originalname, mimetype }: FileUploadParams) => {
   const client = getS3Client();
   const ext = path.extname(originalname);
-  const key = `${randomUUID()}${ext}`;
+  const key = `uploads/${randomUUID()}${ext}`;
 
   const command = new PutObjectCommand({
     Bucket: env.AWS_S3_BUCKET,

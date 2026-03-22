@@ -1,4 +1,4 @@
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { CartRepository } from '@/domains/cart/cart.repository.js';
 import { CartService } from '@/domains/cart/cart.service.js';
 import { CartController } from '@/domains/cart/cart.controller.js';

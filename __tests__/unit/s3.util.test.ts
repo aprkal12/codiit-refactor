@@ -56,7 +56,7 @@ describe('S3 Util 유닛 테스트', () => {
       // --- 준비 (Arrange) ---
       const file = createFileMock();
       mockSend.mockResolvedValueOnce({});
-      const expectedKey = 'mock-random-uuid.png';
+      const expectedKey = 'uploads/mock-random-uuid.png';
       const expectedUrl = `https://mock-bucket.s3.mock-region.amazonaws.com/${expectedKey}`;
 
       // --- 실행 (Act) ---
@@ -95,8 +95,10 @@ describe('S3 Util 유닛 테스트', () => {
       const result = await uploadFile(fileWithoutExt);
 
       // --- 검증 (Assert) ---
-      expect(result.key).toBe('mock-random-uuid');
-      expect(result.url).toBe('https://mock-bucket.s3.mock-region.amazonaws.com/mock-random-uuid');
+      expect(result.key).toBe('uploads/mock-random-uuid');
+      expect(result.url).toBe(
+        'https://mock-bucket.s3.mock-region.amazonaws.com/uploads/mock-random-uuid',
+      );
     });
 
     it('특수문자가 포함된 파일명도 처리해야 합니다.', async () => {
@@ -110,7 +112,7 @@ describe('S3 Util 유닛 테스트', () => {
       const result = await uploadFile(fileWithSpecialChars);
 
       // --- 검증 (Assert) ---
-      expect(result.key).toBe('mock-random-uuid.png');
+      expect(result.key).toBe('uploads/mock-random-uuid.png');
     });
   });
 

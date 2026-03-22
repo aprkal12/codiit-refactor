@@ -49,6 +49,7 @@ import {
   NotFoundError,
 } from '@/common/utils/errors.js';
 import { createSizeMock } from '../mocks/cart.mock.js';
+import { Queue } from 'bullmq';
 
 describe('OrderService', () => {
   const buyerId = 'buyer-id-1';
@@ -61,6 +62,7 @@ describe('OrderService', () => {
   let mockUserService: DeepMockProxy<UserService>;
   let mockOrderService: OrderService;
   let mockSseManager: DeepMockProxy<SseManager>;
+  let mockQueue: DeepMockProxy<Queue>;
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -70,6 +72,7 @@ describe('OrderService', () => {
     mockNotificationService = mockDeep<NotificationService>();
     mockUserService = mockDeep<UserService>();
     mockSseManager = mockDeep<SseManager>();
+    mockQueue = mockDeep<Queue>();
 
     mockOrderService = new OrderService(
       mockOrderRepo,
@@ -77,6 +80,7 @@ describe('OrderService', () => {
       mockPrisma,
       mockUserService,
       mockSseManager,
+      mockQueue,
     );
 
     (mockPrisma.$transaction as jest.MockedFunction<TxMock>).mockImplementation(async (cb) =>
@@ -729,13 +733,14 @@ describe('OrderService', () => {
           { productId: 'product-2', sizeId: 2, quantity: 1 },
         ],
       });
-      mockOrderRepo.findExpiredWaitingOrders.mockResolvedValue([expiredOrder]);
+      const { id: expiredOrderId, orderItems: expiredOrderItems } = expiredOrder;
+      mockOrderRepo.getExpiredOrderInfo.mockResolvedValue({ orderItems: expiredOrderItems });
 
       // when
-      await mockOrderService.expireWaitingOrder();
+      await mockOrderService.expireWaitingOrder(expiredOrderId);
 
       // then
-      expect(mockOrderRepo.findExpiredWaitingOrders).toHaveBeenCalledTimes(1);
+      expect(mockOrderRepo.getExpiredOrderInfo).toHaveBeenCalledTimes(1);
       expect(mockOrderRepo.restoreReservedStock).toHaveBeenCalledTimes(2);
       expect(mockOrderRepo.restoreReservedStock).toHaveBeenCalledWith(
         {
@@ -762,13 +767,13 @@ describe('OrderService', () => {
 
     it('만료된 주문이 없는 경우 로직 수행 없이 종료', async () => {
       // given
-      mockOrderRepo.findExpiredWaitingOrders.mockResolvedValue([]);
+      mockOrderRepo.getExpiredOrderInfo.mockResolvedValue(null);
 
       // when
-      await mockOrderService.expireWaitingOrder();
+      await mockOrderService.expireWaitingOrder('');
 
       // then
-      expect(mockOrderRepo.findExpiredWaitingOrders).toHaveBeenCalledTimes(1);
+      expect(mockOrderRepo.getExpiredOrderInfo).toHaveBeenCalledTimes(1);
       expect(mockOrderRepo.restoreReservedStock).not.toHaveBeenCalled();
       expect(mockOrderRepo.updateStatus).not.toHaveBeenCalled();
     });

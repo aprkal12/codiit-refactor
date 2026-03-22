@@ -2,7 +2,11 @@ import { z } from 'zod';
 import dotenv from 'dotenv';
 import ms, { type StringValue } from 'ms';
 
-dotenv.config();
+const isProd = process.env.NODE_ENV === 'production';
+
+if (!isProd) {
+  dotenv.config();
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -25,25 +29,28 @@ const envSchema = z.object({
 
   // AWS
   AWS_REGION: z.string(),
-  AWS_ACCESS_KEY_ID: z.string(),
-  AWS_SECRET_ACCESS_KEY: z.string(),
+  // 프로덕션이 아닐 때만 필요함 프로덕션에서는 iam role로 인증
+  AWS_ACCESS_KEY_ID: isProd ? z.string().optional() : z.string(),
+  AWS_SECRET_ACCESS_KEY: isProd ? z.string().optional() : z.string(),
   AWS_S3_BUCKET: z.string(),
 
   // Logging
-  SLOW_QUERY_THRESHOLD_MS: z.coerce.number().min(1).default(1000),
+  SLOW_QUERY_THRESHOLD_MS: z.coerce.number().min(1).default(100000),
 
   // Rate Limiting
   RATE_LIMIT_WINDOW: z.string().default('15m'),
-  RATE_LIMIT_MAX: z.coerce.number().default(300),
+  RATE_LIMIT_MAX: z.coerce.number().default(300000),
   RATE_LIMIT_AUTH_LOGIN_WINDOW: z.string().default('15m'),
-  RATE_LIMIT_AUTH_LOGIN_MAX: z.coerce.number().default(5),
+  RATE_LIMIT_AUTH_LOGIN_MAX: z.coerce.number().default(50),
   RATE_LIMIT_AUTH_REFRESH_WINDOW: z.string().default('1m'),
-  RATE_LIMIT_AUTH_REFRESH_MAX: z.coerce.number().default(30),
+  RATE_LIMIT_AUTH_REFRESH_MAX: z.coerce.number().default(300),
 
   // Portone
   PORTONE_API_URL: z.string().default('https://api.iamport.kr'),
   PORTONE_API_KEY: z.string(),
   PORTONE_API_SECRET: z.string(),
+
+  REDIS_URL: z.string().default('redis://localhost:6379'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

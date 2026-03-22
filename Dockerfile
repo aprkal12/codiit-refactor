@@ -23,7 +23,7 @@ COPY src ./src
 RUN npx prisma generate
 
 # TypeScript 빌드
-RUN npm run build
+RUN rm -rf dist && npm run build
 
 # devDependencies 제거 (프로덕션 의존성만 유지)
 RUN npm prune --omit=dev

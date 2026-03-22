@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { authRequest, testClient } from '../helpers/testClient.js';
-import prisma from '@/config/prisma.js';
+import { prisma } from '@/config/prisma.js';
 import { generateBuyerToken } from '../helpers/authHelper.js';
 import { createTestContext, createTestStore, TestContext } from '../helpers/dataFactory.js';
 import { CreateReviewDto, UpdateReviewDto } from '@/domains/review/review.dto.js';

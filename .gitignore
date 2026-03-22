@@ -61,3 +61,5 @@ docker-compose.override.yml
 # Documentation
 docs/
 /generated/prisma
+
+k6/*.txt
